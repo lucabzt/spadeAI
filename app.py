@@ -5,17 +5,21 @@ with HTTPS support for secure WebSocket connections.
 
 import os
 import ssl
+
+import cv2
 from flask import Flask
 from flask_socketio import SocketIO
 from flask_cors import CORS
 
 from ultralytics import YOLO
 
+from camera import Camera
 from utils import get_comm_cards, get_n_cards, process_raw_image
 
 MODEL_PATH = "./models/best_60_23.pt"
+CAM_INDEX = 0
 
-# Certificate paths - update these with your actual certificate paths
+# Certificate paths
 CERT_FILE = os.environ.get('CERT_FILE', './certificates/cert.pem')
 KEY_FILE = os.environ.get('KEY_FILE', './certificates/key.pem')
 
@@ -31,6 +35,9 @@ CORS(app)
 
 # Init AI model
 model = YOLO(MODEL_PATH)
+
+# Init Camera
+camera = Camera(CAM_INDEX)
 
 
 # --- Endpoints ---
@@ -75,56 +82,45 @@ def handle_comm_cards(data):
         'found': len(comm_cards) >= num_cards,
     }
 
-# Generate a self-signed certificate for development (run this once)
-def generate_self_signed_cert():
-    """Generate a self-signed certificate for development purposes."""
-    from OpenSSL import crypto
 
-    # Create a directory for certificates if it doesn't exist
-    os.makedirs(os.path.dirname(CERT_FILE), exist_ok=True)
+@socketio.on('getFrame')
+def handle_get_frame(data):
+    """
+    Gets the frame from the webcam on top of the table
+    :return: buffer image in a format compatible with the frontend
+    """
+    # Get the frame from the camera
+    try:
+        frame = camera.getFrame()
+    except Exception as e:
+        return {'success': False, 'message': str(e)}
 
-    # Only generate if the certificate doesn't already exist
-    if not (os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)):
-        # Create a key pair
-        key = crypto.PKey()
-        key.generate_key(crypto.TYPE_RSA, 2048)
+    # Check if the frame is valid
+    if frame is None or frame.size == 0:
+        return {'success': False, 'message': 'Failed to capture frame'}
 
-        # Create a self-signed cert
-        cert = crypto.X509()
-        cert.get_subject().C = "US"
-        cert.get_subject().ST = "State"
-        cert.get_subject().L = "City"
-        cert.get_subject().O = "Organization"
-        cert.get_subject().OU = "Organizational Unit"
-        # Set the Common Name to match your IP address or domain
-        cert.get_subject().CN = "192.168.178.112"
-        cert.set_serial_number(1000)
-        cert.gmtime_adj_notBefore(0)
-        cert.gmtime_adj_notAfter(10*365*24*60*60)  # 10 years
-        cert.set_issuer(cert.get_subject())
-        cert.set_pubkey(key)
-        cert.sign(key, 'sha256')
+    # Convert the OpenCV frame to JPEG format
+    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
-        # Write certificate and key to files
-        with open(CERT_FILE, "wb") as f:
-            f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-        with open(KEY_FILE, "wb") as f:
-            f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    if not ret:
+        return {'success': False, 'message': 'Failed to encode image'}
 
-        print(f"Self-signed certificate generated at {CERT_FILE} and {KEY_FILE}")
+    # Convert to bytes for transmission
+    frame_bytes = buffer.tobytes()
+
+    # Return the image data
+    return {'success': True, 'image': frame_bytes}
+
+@socketio.on('recalibrate')
+def recalibrate(data):
+    try:
+        camera.calibrate()
+    except Exception as e:
+        return {'success': False, 'message': str(e)}
+    return {'success': True}
 
 # Run the app
 if __name__ == '__main__':
-    # Check if certificates exist, or generate for development
-    if not (os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)):
-        try:
-            generate_self_signed_cert()
-        except ImportError:
-            print("PyOpenSSL not installed. Install with: pip install pyopenssl")
-            print("Alternatively, provide your own certificates using environment variables:")
-            print("CERT_FILE=/path/to/cert.pem KEY_FILE=/path/to/key.pem python app.py")
-            exit(1)
-
     # Start the socketio server with SSL
     socketio.run(
         app,
