@@ -12,6 +12,9 @@ from flask_cors import CORS
 from ultralytics import YOLO
 
 from utils import get_comm_cards, get_n_cards, process_raw_image
+import logging
+
+
 
 MODEL_PATH = "./models/best_60_23.pt"
 
@@ -19,15 +22,31 @@ MODEL_PATH = "./models/best_60_23.pt"
 CERT_FILE = os.environ.get('CERT_FILE', '../Spade/server/cert.pem')
 KEY_FILE = os.environ.get('KEY_FILE', '../Spade/server/key.pem')
 
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('socketio')
+
 # Init Flask app and socketIO
 app = Flask(__name__)
-# Remove SSL config from SocketIO init - we'll apply it only in socketio.run()
+
+
+# Configure CORS for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "supports_credentials": True
+    }
+})
+
+# Configure SocketIO with debug logging
 socketio = SocketIO(
     app,
-    cors_allowed_origins=["https://localhost:3000"], # Spezifiziere den genauen Ursprung
-    async_mode='eventlet'  # use eventlet for better websocket support
+    cors_allowed_origins="*",  # Allow all origins in development
+    async_mode='eventlet',
+    logger=True,
+    engineio_logger=True
 )
-CORS(app)
+
 
 # Init AI model
 model = YOLO(MODEL_PATH)
@@ -38,9 +57,11 @@ model = YOLO(MODEL_PATH)
 def handle_connect():
     print('Client connected')
 
+
 @socketio.on("disconnect")
 def handle_disconnect():
     print('Client disconnected')
+
 
 @socketio.on('frame')
 def handle_frame(data):
@@ -58,6 +79,7 @@ def handle_frame(data):
         'predictions': preds,
         'found': len(preds) >= num_cards,
     }
+
 
 @socketio.on('comm_cards')
 def handle_comm_cards(data):
