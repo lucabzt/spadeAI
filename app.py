@@ -37,7 +37,7 @@ CORS(app)
 model = YOLO(MODEL_PATH)
 
 # Init Camera
-camera = Camera(CAM_INDEX)
+camera = None
 
 
 # --- Endpoints ---
@@ -121,6 +121,7 @@ def recalibrate(data):
 
 # Run the app
 if __name__ == '__main__':
+    camera = Camera()
     # Start the socketio server with SSL
     socketio.run(
         app,

@@ -12,12 +12,16 @@ import matplotlib.pyplot as plt
 class Camera:
     def __init__(self, cam_index: int = 0, padding = 0.05):
         self.cam = cv2.VideoCapture(cam_index)
+        if not self.cam.isOpened():
+            raise ValueError(f"Unable to open camera at index {cam_index}")
         self.padding = padding
+
         # Get the default frame width and height
         frame_width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
         print(frame_width, frame_height)
         self.calibration: np.ndarray = np.array([0, 0, frame_width, frame_height])
+        self.spades = []
 
     def getFrame(self):
         """
@@ -25,6 +29,10 @@ class Camera:
         """
         ret, frame = self.cam.read()
         x_min, y_min, x_max, y_max = self.calibration
+        for x, y, w, h in self.spades:
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 3)  # Red border for spades
+            cv2.putText(frame, "Spade", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255),
+                        2)  # Nametag for spades
         cropped_image = frame[y_min:y_max, x_min:x_max]
 
         return cropped_image
@@ -48,6 +56,7 @@ class Camera:
             spades = sorted(spades, key=lambda x: x[0])
             left_spade = spades[0]
             right_spade = spades[-1]
+            self.spades = spades
 
             # Define the bounding box from the left spade to the right spade
             x_min, y_min, x_max, y_max = self.refine_bounding_box(image, [left_spade, right_spade], self.padding)
